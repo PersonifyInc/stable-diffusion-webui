@@ -1,5 +1,5 @@
 import sys
-
+import os
 import gradio as gr
 
 from modules import shared_cmd_options, shared_gradio_themes, options, shared_items, sd_models_types
@@ -20,6 +20,17 @@ demo = None
 device = None
 
 weight_load_location = None
+
+# add more default embedding dirs
+cmd_opts.extended_embedding_dirs = [
+    os.path.sep.join([data_path, "embeddings", "StylesEmbedding"]),
+
+]
+if cmd_opts.additional_embedding:
+    cmd_opts.extended_embedding_dirs.append(cmd_opts.additional_embedding)
+
+# addition action for lora
+cmd_opts.lora_dir = os.path.sep.join([data_path, "embeddings", "Lora"])
 
 xformers_available = False
 

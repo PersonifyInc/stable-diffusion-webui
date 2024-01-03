@@ -1,0 +1,29 @@
+{
+    "8_bit_graphics.safetensors": {
+        "alias": "8 Bit Graphics"
+    },
+    "abandon_architecture.safetensors": {
+        "alias": "Abandon Architecture"
+    },
+    "anime_landscapes.safetensors": {
+        "alias": "Anime Landscapes"
+    },
+    "baroque_style.safetensors": {
+        "alias": "Baroque Style"
+    },
+    "illuminated_architecture.safetensors": {
+        "alias": "Illuminated Architecture"
+    },
+    "modern_interior.safetensors": {
+        "alias": "Modern interior"
+    },
+    "monograph.safetensors": {
+        "alias": "Monograph"
+    },
+    "night_life.safetensors": {
+        "alias": "Night Life"
+    },
+    "retro_tech_design.safetensors": {
+        "alias": "Retro Tech Design"
+    }
+}

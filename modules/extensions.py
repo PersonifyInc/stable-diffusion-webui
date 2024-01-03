@@ -1,8 +1,8 @@
 import os
 import threading
+import sys
 
 from modules import shared, errors, cache, scripts
-from modules.gitpython_hack import Repo
 from modules.paths_internal import extensions_dir, extensions_builtin_dir, script_path  # noqa: F401
 
 extensions = []
@@ -35,6 +35,7 @@ class Extension:
         self.version = ''
         self.branch = None
         self.remote = None
+        self.status = 'unknown'
         self.have_info_from_repo = False
 
     def to_dict(self):
@@ -48,22 +49,24 @@ class Extension:
         if self.is_builtin or self.have_info_from_repo:
             return
 
-        def read_from_repo():
-            with self.lock:
-                if self.have_info_from_repo:
-                    return
+        if '--noprepare' not in sys.argv:
+            def read_from_repo():
+                with self.lock:
+                    if self.have_info_from_repo:
+                        return
 
-                self.do_read_info_from_repo()
+                    self.do_read_info_from_repo()
 
-                return self.to_dict()
-        try:
-            d = cache.cached_data_for_file('extensions-git', self.name, os.path.join(self.path, ".git"), read_from_repo)
-            self.from_dict(d)
-        except FileNotFoundError:
-            pass
+                    return self.to_dict()
+            try:
+                d = cache.cached_data_for_file('extensions-git', self.name, os.path.join(self.path, ".git"), read_from_repo)
+                self.from_dict(d)
+            except FileNotFoundError:
+                pass
         self.status = 'unknown' if self.status == '' else self.status
 
     def do_read_info_from_repo(self):
+        from modules.gitpython_hack import Repo
         repo = None
         try:
             if os.path.exists(os.path.join(self.path, ".git")):
@@ -103,34 +106,38 @@ class Extension:
         return res
 
     def check_updates(self):
-        repo = Repo(self.path)
-        for fetch in repo.remote().fetch(dry_run=True):
-            if fetch.flags != fetch.HEAD_UPTODATE:
-                self.can_update = True
-                self.status = "new commits"
-                return
+        if '--noprepare' not in sys.argv:
+            from modules.gitpython_hack import Repo
+            repo = Repo(self.path)
+            for fetch in repo.remote().fetch(dry_run=True):
+                if fetch.flags != fetch.HEAD_UPTODATE:
+                    self.can_update = True
+                    self.status = "new commits"
+                    return
 
-        try:
-            origin = repo.rev_parse('origin')
-            if repo.head.commit != origin:
-                self.can_update = True
-                self.status = "behind HEAD"
+            try:
+                origin = repo.rev_parse('origin')
+                if repo.head.commit != origin:
+                    self.can_update = True
+                    self.status = "behind HEAD"
+                    return
+            except Exception:
+                self.can_update = False
+                self.status = "unknown (remote error)"
                 return
-        except Exception:
-            self.can_update = False
-            self.status = "unknown (remote error)"
-            return
 
         self.can_update = False
         self.status = "latest"
 
     def fetch_and_reset_hard(self, commit='origin'):
-        repo = Repo(self.path)
-        # Fix: `error: Your local changes to the following files would be overwritten by merge`,
-        # because WSL2 Docker set 755 file permissions instead of 644, this results to the error.
-        repo.git.fetch(all=True)
-        repo.git.reset(commit, hard=True)
-        self.have_info_from_repo = False
+        if '--noprepare' not in sys.argv:
+            from modules.gitpython_hack import Repo
+            repo = Repo(self.path)
+            # Fix: `error: Your local changes to the following files would be overwritten by merge`,
+            # because WSL2 Docker set 755 file permissions instead of 644, this results to the error.
+            repo.git.fetch(all=True)
+            repo.git.reset(commit, hard=True)
+            self.have_info_from_repo = False
 
 
 def list_extensions():

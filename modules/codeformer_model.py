@@ -43,6 +43,13 @@ def setup_model(dirname):
                 self.face_helper = None
                 self.cmd_dir = dirname
 
+            def release_model(self):
+                del self.net
+                self.net = None
+
+                del self.face_helper
+                self.face_helper = None
+
             def create_models(self):
 
                 if self.net is not None and self.face_helper is not None:

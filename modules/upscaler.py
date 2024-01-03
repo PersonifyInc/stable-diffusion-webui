@@ -82,6 +82,17 @@ class Upscaler:
     def update_status(self, prompt):
         print(f"\nextras: {prompt}", file=shared.progress_print_out)
 
+    @abstractmethod
+    def release_model(self):
+        pass
+
+    @abstractmethod
+    def get_total_steps(self, width, height, name, scale):
+        return 0
+    
+    @abstractmethod
+    def update_step_num(self, data):
+        return False
 
 class UpscalerData:
     name = None

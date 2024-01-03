@@ -1,4 +1,31 @@
 # Stable Diffusion web UI
+
+________________________________________________________________________________________________________________________________________
+## NOTE:
+
+### Download weights
+we need to download the weight of SD: v1-5-pruned-emaonly.safetensors to models/Stable-diffusion/
+link: https://drive.google.com/file/d/1dK2z2geq0nhPWmO7Gqih50b0MyB9jP4c/view?usp=sharing
+or run python code:
+
+```sh
+import gdown
+import shutil
+id="1WHjnNZtFLrr0CZzC4CcFpFnMifOWoQpR"
+gdown.download(id=id, quiet=False)
+shutil.move(r"v1-5-pruned-emaonly.safetensors", r"models/Stable-diffusion/v1-5-pruned-emaonly.safetensors")
+```
+
+### Pull code
+It use submodule and git lfs, so after pull code need to run commands:
+
+```sh
+git submodule update --init
+git lfs fetch -a
+```
+
+________________________________________________________________________________________________________________________________________
+
 A browser interface based on Gradio library for Stable Diffusion.
 
 ![](screenshot.png)

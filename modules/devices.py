@@ -45,7 +45,8 @@ def get_device_for(task):
 
 
 def torch_gc():
-
+    import gc
+    gc.collect()
     if torch.cuda.is_available():
         with torch.cuda.device(get_cuda_device_string()):
             torch.cuda.empty_cache()

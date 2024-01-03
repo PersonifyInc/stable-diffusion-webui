@@ -1,4 +1,5 @@
 from modules import launch_utils
+import sys
 
 args = launch_utils.args
 python = launch_utils.python
@@ -35,7 +36,7 @@ def main():
     launch_utils.startup_timer.record("initial startup")
 
     with launch_utils.startup_timer.subcategory("prepare environment"):
-        if not args.skip_prepare_environment:
+        if '--noprepare' not in sys.argv and not args.skip_prepare_environment:
             prepare_environment()
 
     if args.test_server:
@@ -45,4 +46,24 @@ def main():
 
 
 if __name__ == "__main__":
+    # sys.argv.append("--nowebui")
+    # sys.argv.append("--noprepare")
+    # sys.argv.append("--memory-ratio-allow")
+    # sys.argv.append("0.1")
+    # sys.argv.append("--memory-check-interval")
+    # sys.argv.append("1")
+    # sys.argv.append("--memory-timeout")
+    # sys.argv.append("60")
+    # sys.argv.append("--gpu-memory-fraction")
+    # sys.argv.append("0.9")
+    # sys.argv.append("--xformers")
+    # sys.argv.append("--api")
+    # sys.argv.append("--port")
+    # sys.argv.append("7865")
+    # sys.argv.append("--additional-model")
+    # sys.argv.append(r"C:\Users\Personify.inc\AppData\Local\Personify\AiGenerator\Models")
+    # sys.argv.append("--additional-lora")
+    # sys.argv.append(r"C:\Users\Personify.inc\AppData\Local\Personify\AiGenerator\Styles\Lora")
+    # sys.argv.append("--additional-embedding")
+    # sys.argv.append(r"C:\Users\Personify.inc\AppData\Local\Personify\AiGenerator\Styles\Embeddings")
     main()

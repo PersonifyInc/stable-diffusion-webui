@@ -109,6 +109,20 @@ StableDiffusionTxt2ImgProcessingAPI = PydanticModelGenerator(
         {"key": "send_images", "type": bool, "default": True},
         {"key": "save_images", "type": bool, "default": False},
         {"key": "alwayson_scripts", "type": dict, "default": {}},
+        {"key": "save_dir", "type": str, "default": None},
+        {"key": "send_paths", "type": bool, "default": True},
+        {"key": "ar_width", "type": int, "default": 1},
+        {"key": "ar_height", "type": int, "default": 1},
+        {"key": "image_count", "type": int, "default": 0},
+        {"key": "dimension_id", "type": int, "default": 0},
+        {"key": "extras_upscaler_1", "type": str, "default": None},
+        {"key": "extras_upscaling_resize", "type": float, "default": 0},
+        {"key": "extras_additional_steps", "type": int, "default": 0},
+        {"key": "text2embeds", "type": str, "default": None},
+        {"key": "actual_prompt", "type": str, "default": None},
+        {"key": "uuid", "type": str, "default": None},
+        {"key": "user_id", "type": str, "default": None},
+        {"key": "run_times", "type": float, "default": 0},
     ]
 ).generate_model()
 
@@ -131,6 +145,17 @@ StableDiffusionImg2ImgProcessingAPI = PydanticModelGenerator(
 
 class TextToImageResponse(BaseModel):
     images: List[str] = Field(default=None, title="Image", description="The generated image in base64 format.")
+    image_paths: List[str] = Field(default=None, title="Image Path", description="The generated image paths.")
+    speech_text: str = Field(default=None, title="Text", description="The generated text.")
+    sentence_vector: str = Field(default=None, title="Embeddings of prompt", description="Embeddings of prompt")
+    parameters: dict 
+    info: str = Field(default=None, title="info", description="info")
+    error_message: str = Field(default=None, title="Error Message", description="Error Message")
+    error: int
+
+class AudioToImageResponse(BaseModel):
+    images: List[str] = Field(default=None, title="Image", description="The generated image in base64 format.")
+    txt: str
     parameters: dict
     info: str
 
@@ -169,9 +194,16 @@ class FileData(BaseModel):
 
 class ExtrasBatchImagesRequest(ExtrasBaseRequest):
     imageList: List[FileData] = Field(title="Images", description="List of images to work on. Must be Base64 strings")
+    save_dir: str = Field(title="Save Dir", description="Directory for save results")
+    send_paths: bool = Field(title="Send Paths", description="Send results by paths")
+    image_count: int = Field(title="Image Count", description="Number of request images")
+    uuid: str = Field(title="uuid", description="uuid")
+    user_id: str = Field(title="user_id", description="user_id")
 
 class ExtrasBatchImagesResponse(ExtraBaseResponse):
     images: List[str] = Field(title="Images", description="The generated images in base64 format.")
+    image_paths: List[str] = Field(title="Image Path", description="The generated image paths.")
+    error: int
 
 class PNGInfoRequest(BaseModel):
     image: str = Field(title="Image", description="The base64 encoded PNG image")
@@ -182,6 +214,12 @@ class PNGInfoResponse(BaseModel):
 
 class ProgressRequest(BaseModel):
     skip_current_image: bool = Field(default=False, title="Skip current image", description="Skip current image serialization")
+    uuid: str = Field(default=None, title="uuid", description="uuid need to get progress")
+
+class EmbeddingRequest(BaseModel):
+    refresh_lora: bool = Field(default=False, title="Refresh lora", description="Refresh avaiable loras")
+    refresh_embedding: bool = Field(default=False, title="Refresh embedding", description="Refresh avaiable embeddings")
+    select_model: str = Field(default=None, title="Select model id", description="Select another model")
 
 class ProgressResponse(BaseModel):
     progress: float = Field(title="Progress", description="The progress with a range of 0 to 1")
@@ -189,7 +227,9 @@ class ProgressResponse(BaseModel):
     state: dict = Field(title="State", description="The current state snapshot")
     current_image: str = Field(default=None, title="Current image", description="The current image in base64 format. opts.show_progress_every_n_steps is required for this to work.")
     textinfo: str = Field(default=None, title="Info text", description="Info text used by WebUI.")
-
+    uuid: str = Field(default=None, title="uuid", description="uuid of image in progress")
+    status: str = Field(default=None, title="status", description="status of image in progress")
+    
 class InterrogateRequest(BaseModel):
     image: str = Field(default="", title="Image", description="Image to work on, must be a Base64 string containing the image's data.")
     model: str = Field(default="clip", title="Model", description="The interrogate model used.")
@@ -280,12 +320,22 @@ class EmbeddingItem(BaseModel):
     step: Optional[int] = Field(title="Step", description="The number of steps that were used to train this embedding, if available")
     sd_checkpoint: Optional[str] = Field(title="SD Checkpoint", description="The hash of the checkpoint this embedding was trained on, if available")
     sd_checkpoint_name: Optional[str] = Field(title="SD Checkpoint Name", description="The name of the checkpoint this embedding was trained on, if available. Note that this is the name that was used by the trainer; for a stable identifier, use `sd_checkpoint` instead")
-    shape: int = Field(title="Shape", description="The length of each individual vector in the embedding")
-    vectors: int = Field(title="Vectors", description="The number of vectors in the embedding")
+    shape: Optional[int] = Field(title="Shape", description="The length of each individual vector in the embedding")
+    vectors: Optional[int] = Field(title="Vectors", description="The number of vectors in the embedding")
+    alias: str = Field(title="Alias", description="Alias of the embedding")
+    type: int = Field(title="Style Type", description="0: Textual Invertion, 1: Lora")
+
+class ModelItem(BaseModel):
+    id: str = Field(title="id")
+    alias: str = Field(title="alias")
+    selected: bool = Field(title="is selected")
 
 class EmbeddingsResponse(BaseModel):
+    device_id: int = Field(title="CUDA device id", description="Device id of cuda device")
+    samplers: Dict[str, SamplerItem] = Field(title="Samplers", description="Sample methods for the current model")
     loaded: Dict[str, EmbeddingItem] = Field(title="Loaded", description="Embeddings loaded for the current model")
     skipped: Dict[str, EmbeddingItem] = Field(title="Skipped", description="Embeddings skipped for the current model (likely due to architecture incompatibility)")
+    models: Dict[str, ModelItem] = Field(title="Models", description="List of model paths with id")
 
 class MemoryResponse(BaseModel):
     ram: dict = Field(title="RAM", description="System memory stats")

@@ -20,6 +20,7 @@ class UpscalerRealESRGAN(Upscaler):
             from realesrgan.archs.srvgg_arch import SRVGGNetCompact  # noqa: F401
             self.enable = True
             self.scalers = []
+            self.upsampler = None
             scalers = self.load_models(path)
 
             local_model_paths = self.find_models(ext_filter=[".pth"])
@@ -48,7 +49,7 @@ class UpscalerRealESRGAN(Upscaler):
             errors.report(f"Unable to load RealESRGAN model {path}", exc_info=True)
             return img
 
-        upsampler = RealESRGANer(
+        self.upsampler = RealESRGANer(
             scale=info.scale,
             model_path=info.local_data_path,
             model=info.model(),
@@ -58,7 +59,7 @@ class UpscalerRealESRGAN(Upscaler):
             device=self.device,
         )
 
-        upsampled = upsampler.enhance(np.array(img), outscale=info.scale)[0]
+        upsampled = self.upsampler.enhance(np.array(img), outscale=info.scale)[0]
 
         image = Image.fromarray(upsampled)
         return image
@@ -79,6 +80,52 @@ class UpscalerRealESRGAN(Upscaler):
     def load_models(self, _):
         return get_realesrgan_models(self)
 
+    def release_model(self):
+        from modules import devices
+        del self.upsampler
+        self.upsampler = None
+        devices.torch_gc()
+
+    def get_total_steps(self, width, height, name, scale):
+        import math
+        info = next(iter([scaler for scaler in self.scalers if scaler.name == name]), None)
+        if (info is None):
+            return 0
+
+        total_steps = 0
+
+        dest_w = int((width * scale) // 8 * 8)
+        dest_h = int((height * scale) // 8 * 8)
+
+        width = width + opts.ESRGAN_tile_overlap
+        height = height + opts.ESRGAN_tile_overlap
+        for _ in range(3):
+            tiles_x = math.ceil(width / opts.ESRGAN_tile)
+            tiles_y = math.ceil(height / opts.ESRGAN_tile)
+            total_steps += tiles_x * tiles_y
+
+            shape = (width, height)
+
+            new_shape = (width * info.scale, height * info.scale)
+
+            if shape == new_shape:
+                break
+
+            if new_shape[0] >= dest_w and new_shape[1] >= dest_h:
+                break
+
+            (width, height) = new_shape
+
+        return total_steps
+    
+    def update_step_num(self, data):
+        import re
+        splits = re.split('\s+|Tile|/', data)
+        splits = list(filter(bool, splits))
+        splits = [int(e) for e in splits if e.isdigit()]
+        if (len(splits) >= 2):
+            return 1
+        return 0
 
 def get_realesrgan_models(scaler):
     try:

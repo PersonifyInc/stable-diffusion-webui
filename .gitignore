@@ -1,14 +1,7 @@
 __pycache__
-*.ckpt
-*.safetensors
-*.pth
-/ESRGAN/*
-/SwinIR/*
-/repositories
 /venv
 /tmp
 /model.ckpt
-/models/**/*
 /GFPGANv1.3.pth
 /gfpgan/weights/*.pth
 /ui-config.json
@@ -16,7 +9,6 @@ __pycache__
 /config.json
 /log
 /webui.settings.bat
-/embeddings
 /styles.csv
 /params.txt
 /styles.csv.bak
@@ -26,7 +18,6 @@ __pycache__
 /user.css
 /.idea
 notification.mp3
-/SwinIR
 /textual_inversion
 .vscode
 /extensions
@@ -37,3 +28,4 @@ notification.mp3
 /node_modules
 /package-lock.json
 /.coverage*
+.env

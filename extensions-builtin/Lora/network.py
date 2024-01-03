@@ -21,6 +21,8 @@ class NetworkOnDisk:
     def __init__(self, name, filename):
         self.name = name
         self.filename = filename
+        self.prompt = f"<lora:{self.name}:{shared.opts.extra_networks_default_multiplier}>"
+        self.config_alias = name
         self.metadata = {}
         self.is_safetensors = os.path.splitext(filename)[1].lower() == ".safetensors"
 

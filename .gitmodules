@@ -1,0 +1,18 @@
+[submodule "repositories/taming-transformers"]
+	path = repositories/taming-transformers
+	url = https://github.com/PersonifyInc/taming-transformers
+[submodule "repositories/k-diffusion"]
+	path = repositories/k-diffusion
+	url = https://github.com/PersonifyInc/k-diffusion
+[submodule "repositories/CodeFormer"]
+	path = repositories/CodeFormer
+	url = https://github.com/PersonifyInc/CodeFormer
+[submodule "repositories/BLIP"]
+	path = repositories/BLIP
+	url = https://github.com/PersonifyInc/BLIP
+[submodule "repositories/stable-diffusion-stability-ai"]
+	path = repositories/stable-diffusion-stability-ai
+	url = https://github.com/PersonifyInc/stable-diffusion-stability-ai
+[submodule "repositories/generative-models"]
+	path = repositories/generative-models
+	url = https://github.com/Stability-AI/generative-models

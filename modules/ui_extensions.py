@@ -4,8 +4,6 @@ import threading
 import time
 from datetime import datetime, timezone
 
-import git
-
 import gradio as gr
 import html
 import shutil
@@ -361,6 +359,7 @@ def install_extension_from_url(dirname, url, branch_name=None):
     tmpdir = os.path.join(paths.data_path, "tmp", dirname)
 
     try:
+        import git
         shutil.rmtree(tmpdir, True)
         if not branch_name:
             # if no branch is specified, use the default branch

@@ -77,6 +77,7 @@ def run_postprocessing(extras_mode, image, image_folder, input_dir, output_dir, 
 
         image_data.close()
 
+    scripts.scripts_postproc.release_model()
     devices.torch_gc()
 
     return outputs, ui_common.plaintext_to_html(infotext), ''

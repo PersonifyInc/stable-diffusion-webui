@@ -46,6 +46,9 @@ def send_model_to(model, device):
     model.face_helper.face_det.to(device)
     model.face_helper.face_parse.to(device)
 
+def release_model():
+    del loaded_gfpgan_model
+    loaded_gfpgan_model = None
 
 def gfpgan_fix_faces(np_image):
     model = gfpgann()
@@ -63,6 +66,7 @@ def gfpgan_fix_faces(np_image):
     if shared.opts.face_restoration_unload:
         send_model_to(model, devices.cpu)
 
+    model = None
     return np_image
 
 
@@ -104,6 +108,9 @@ def setup_model(dirname):
 
             def restore(self, np_image):
                 return gfpgan_fix_faces(np_image)
+
+            def release_model(self):
+                release_model()
 
         shared.face_restorers.append(FaceRestorerGFPGAN())
     except Exception:

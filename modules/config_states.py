@@ -3,12 +3,12 @@ Supports saving and restoring webui and extensions from a known working set of c
 """
 
 import os
+import sys
 import json
 import time
 import tqdm
 
 from datetime import datetime
-import git
 
 from modules import shared, extensions, errors
 from modules.paths_internal import script_path, config_states_dir
@@ -49,11 +49,13 @@ def list_config_states():
 def get_webui_config():
     webui_repo = None
 
-    try:
-        if os.path.exists(os.path.join(script_path, ".git")):
-            webui_repo = git.Repo(script_path)
-    except Exception:
-        errors.report(f"Error reading webui git info from {script_path}", exc_info=True)
+    if '--noprepare' not in sys.argv:
+        try:
+            import git
+            if os.path.exists(os.path.join(script_path, ".git")):
+                webui_repo = git.Repo(script_path)
+        except Exception:
+            errors.report(f"Error reading webui git info from {script_path}", exc_info=True)
 
     webui_remote = None
     webui_commit_hash = None
@@ -129,12 +131,14 @@ def restore_webui_config(config):
     webui_commit_hash = webui_config.get("commit_hash", None)
     webui_repo = None
 
-    try:
-        if os.path.exists(os.path.join(script_path, ".git")):
-            webui_repo = git.Repo(script_path)
-    except Exception:
-        errors.report(f"Error reading webui git info from {script_path}", exc_info=True)
-        return
+    if '--noprepare' not in sys.argv:
+        try:
+            import git
+            if os.path.exists(os.path.join(script_path, ".git")):
+                webui_repo = git.Repo(script_path)
+        except Exception:
+            errors.report(f"Error reading webui git info from {script_path}", exc_info=True)
+            return
 
     try:
         webui_repo.git.fetch(all=True)

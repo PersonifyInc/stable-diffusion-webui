@@ -479,6 +479,8 @@ class StableDiffusionProcessing:
         """Returns whether generated images need to be written to disk"""
         return opts.samples_save and not self.do_not_save_samples and (opts.save_incomplete_images or not state.interrupted and not state.skipped)
 
+    def __del__(self):
+        modules.face_restoration.release_model()
 
 class Processed:
     def __init__(self, p: StableDiffusionProcessing, images_list, seed=-1, info="", subseed=None, all_prompts=None, all_negative_prompts=None, all_seeds=None, all_subseeds=None, index_of_first_image=0, infotexts=None, comments=""):
@@ -865,6 +867,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
             with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
                 samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+                if state.interrupted:
+                    print(f"## interrupted {p.iteration} ")
+                    break
 
             if getattr(samples_ddim, 'already_decoded', False):
                 x_samples_ddim = samples_ddim
@@ -1033,7 +1038,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
     truncate_x: int = field(default=0, init=False)
     truncate_y: int = field(default=0, init=False)
     applied_old_hires_behavior_to: tuple = field(default=None, init=False)
-    latent_scale_mode: dict = field(default=None, init=False)
+    hr_latent_scale_mode: dict = field(default=None, init=False)
     hr_c: tuple | None = field(default=None, init=False)
     hr_uc: tuple | None = field(default=None, init=False)
     all_hr_prompts: list = field(default=None, init=False)
@@ -1041,6 +1046,22 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
     hr_prompts: list = field(default=None, init=False)
     hr_negative_prompts: list = field(default=None, init=False)
     hr_extra_network_data: list = field(default=None, init=False)
+
+    rs_enable: bool = False
+    rs_resize_x: int = 0
+    rs_resize_y: int = 0
+    rs_resize_mode: int = 0
+    rs_upscaler: str = None
+    rs_steps: int = 0
+    rs_sampler_name: str = None
+    rs_denoising_strength: float = 0.75
+    rs_latent_scale_mode: dict = field(default=None, init=False)
+    # rs_checkpoint_name: str = None
+    # rs_sampler_name: str = None
+    # rs_prompt: str = ''
+    # rs_negative_prompt: str = ''
+
+    extras_additional_steps: int = 0
 
     def __post_init__(self):
         super().__post_init__()
@@ -1083,18 +1104,23 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
                 src_ratio = self.width / self.height
                 dst_ratio = self.hr_resize_x / self.hr_resize_y
 
-                if src_ratio < dst_ratio:
-                    self.hr_upscale_to_x = self.hr_resize_x
-                    self.hr_upscale_to_y = self.hr_resize_x * self.height // self.width
-                else:
-                    self.hr_upscale_to_x = self.hr_resize_y * self.width // self.height
-                    self.hr_upscale_to_y = self.hr_resize_y
+                # if src_ratio < dst_ratio:
+                #     self.hr_upscale_to_x = self.hr_resize_x
+                #     self.hr_upscale_to_y = self.hr_resize_x * self.height // self.width
+                # else:
+                #     self.hr_upscale_to_x = self.hr_resize_y * self.width // self.height
+                #     self.hr_upscale_to_y = self.hr_resize_y
+                
+                self.hr_upscale_to_x = self.hr_resize_x
+                self.hr_upscale_to_y = self.hr_resize_y
 
                 self.truncate_x = (self.hr_upscale_to_x - target_w) // opt_f
                 self.truncate_y = (self.hr_upscale_to_y - target_h) // opt_f
 
     def init(self, all_prompts, all_seeds, all_subseeds):
-        if self.enable_hr:
+        if (self.extras_additional_steps > 0):
+            shared.total_tqdm.updateExtraSteps(self.extras_additional_steps)
+        if self.enable_hr or self.rs_enable:
             if self.hr_checkpoint_name:
                 self.hr_checkpoint_info = sd_models.get_closet_checkpoint_match(self.hr_checkpoint_name)
 
@@ -1112,10 +1138,15 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
             if tuple(self.hr_negative_prompt) != tuple(self.negative_prompt):
                 self.extra_generation_params["Hires negative prompt"] = self.hr_negative_prompt
 
-            self.latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
-            if self.enable_hr and self.latent_scale_mode is None:
+            self.hr_latent_scale_mode = shared.latent_upscale_modes.get(self.hr_upscaler, None) if self.hr_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
+            if self.enable_hr and self.hr_latent_scale_mode is None:
                 if not any(x.name == self.hr_upscaler for x in shared.sd_upscalers):
                     raise Exception(f"could not find upscaler named {self.hr_upscaler}")
+
+            self.rs_latent_scale_mode = shared.latent_upscale_modes.get(self.rs_upscaler, None) if self.rs_upscaler is not None else shared.latent_upscale_modes.get(shared.latent_upscale_default_mode, "nearest")
+            if self.rs_enable and self.rs_latent_scale_mode is None:
+                if not any(x.name == self.rs_upscaler for x in shared.sd_upscalers):
+                    raise Exception(f"could not find upscaler named {self.rs_upscaler}")
 
             self.calculate_target_resolution()
 
@@ -1123,8 +1154,16 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
                 if state.job_count == -1:
                     state.job_count = self.n_iter
 
-                shared.total_tqdm.updateTotal((self.steps + (self.hr_second_pass_steps or self.steps)) * state.job_count)
-                state.job_count = state.job_count * 2
+                stepsAll = self.steps * state.job_count
+                jobN = 1
+                if self.enable_hr:
+                    stepsAll += (self.hr_second_pass_steps or self.steps) * state.job_count
+                    jobN += 1
+                if self.rs_enable:
+                    stepsAll += (self.rs_steps or self.steps) * state.job_count
+                    jobN += 1
+                shared.total_tqdm.updateTotal(stepsAll)
+                state.job_count = state.job_count * jobN
                 state.processing_has_refined_job_count = True
 
             if self.hr_second_pass_steps:
@@ -1140,10 +1179,29 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         samples = self.sampler.sample(self, x, conditioning, unconditional_conditioning, image_conditioning=self.txt2img_image_conditioning(x))
         del x
 
+        if not self.enable_hr and not self.rs_enable:
+            return samples
+
+        if self.rs_enable:
+            denoising_strength_temp = self.denoising_strength
+            self.denoising_strength = self.rs_denoising_strength
+            if self.rs_latent_scale_mode is None:
+                decoded_samples = torch.stack(decode_latent_batch(self.sd_model, samples, target_device=devices.cpu, check_for_nans=True)).to(dtype=torch.float32)
+            else:
+                decoded_samples = None
+
+            # with sd_models.SkipWritingToConfig():
+            #     sd_models.reload_model_weights(info=self.hr_checkpoint_info)
+
+            devices.torch_gc()
+
+            samples = self.sample_rs_pass(samples, decoded_samples, seeds, subseeds, subseed_strength, prompts)
+            self.denoising_strength = denoising_strength_temp
+
         if not self.enable_hr:
             return samples
 
-        if self.latent_scale_mode is None:
+        if self.hr_latent_scale_mode is None:
             decoded_samples = torch.stack(decode_latent_batch(self.sd_model, samples, target_device=devices.cpu, check_for_nans=True)).to(dtype=torch.float32)
         else:
             decoded_samples = None
@@ -1155,14 +1213,46 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
         return self.sample_hr_pass(samples, decoded_samples, seeds, subseeds, subseed_strength, prompts)
 
-    def sample_hr_pass(self, samples, decoded_samples, seeds, subseeds, subseed_strength, prompts):
+    def sample_rs_pass(self, samples, decoded_samples, seeds, subseeds, subseed_strength, prompts):
         if shared.state.interrupted:
             return samples
 
         self.is_hr_pass = True
 
-        target_width = self.hr_upscale_to_x
-        target_height = self.hr_upscale_to_y
+        target_width = int(self.rs_resize_x)
+        target_height = int(self.rs_resize_y)
+        
+        def addPaddingSampler(samples, padWidth, padHeight):
+            decoded_samples = [decode_first_stage(self.sd_model, samples[i:i+1]) for i in range(samples.size(0))]
+            decoded_samples = torch.cat(decoded_samples)
+            lowres_samples = torch.clamp((decoded_samples + 1.0) / 2.0, min=0.0, max=1.0)
+
+            batch_images = []
+            for i, x_sample in enumerate(lowres_samples):
+                x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
+                x_sample = x_sample.astype(np.uint8)
+                image = Image.fromarray(x_sample)
+
+                save_intermediate(image, i)
+
+                # image = images.resize_image(0, image, target_width, target_height, upscaler_name=self.hr_upscaler)
+                # image = images.resize_image(self.rs_resize_mode, image, target_width, target_height, upscaler_name=self.hr_upscaler)
+
+                res = Image.new("RGB", (target_width+2*padWidth, target_height+2*padHeight))
+                res.paste(image, box=(padWidth, padHeight))
+
+                image = np.array(res).astype(np.float32) / 255.0
+                image = np.moveaxis(image, 2, 0)
+                batch_images.append(image)
+
+            decoded_samples = torch.from_numpy(np.array(batch_images))
+            decoded_samples = decoded_samples.to(shared.device)
+            decoded_samples = 2. * decoded_samples - 1.
+
+            samples = [self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(decoded_samples[i:i+1])) for i in range(decoded_samples.shape[0])]
+            samples = torch.cat(samples)
+
+            return samples
 
         def save_intermediate(image, index):
             """saves image before applying hires fix, if enabled in options; takes as an argument either an image or batch with latent space images"""
@@ -1180,11 +1270,54 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
         self.sampler = sd_samplers.create_sampler(img2img_sampler_name, self.sd_model)
 
-        if self.latent_scale_mode is not None:
+        if self.rs_latent_scale_mode is not None:
             for i in range(samples.shape[0]):
                 save_intermediate(samples, i)
 
-            samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.latent_scale_mode["mode"], antialias=self.latent_scale_mode["antialias"])
+            dimSizeMin = min(target_height, target_width) // opt_f
+            dimSizeMax = max(target_height, target_width) // opt_f
+            dimSreduc = (dimSizeMax-dimSizeMin)
+
+            samples = torch.clamp(samples, min=-1, max=1)
+            zero = -1
+            cropW = 2
+            cropH = 4
+
+            # samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+            if self.rs_resize_mode == 2:
+                samples = torch.nn.functional.interpolate(samples, size=(dimSizeMin, dimSizeMin), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                if target_width > target_height:
+                    samples = torch.nn.functional.pad(samples, (dimSreduc//2, (dimSreduc+1)//2, 0, 0), "replicate")
+                else:
+                    samples = torch.nn.functional.pad(samples, (0, 0, dimSreduc//2, (dimSreduc+1)//2), "replicate")
+
+            elif self.rs_resize_mode == 5:
+                samples = torch.nn.functional.interpolate(samples, size=(dimSizeMin, dimSizeMin), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                if target_width > target_height:
+                    samples = torch.nn.functional.pad(samples, (dimSreduc//2, (dimSreduc+1)//2, 0, 0), "replicate")
+                    samples = addPaddingSampler(samples, 0, 16)
+                else:
+                    samples = torch.nn.functional.pad(samples, (0, 0, dimSreduc//2, (dimSreduc+1)//2), "replicate")
+
+            elif self.rs_resize_mode == 3:
+                samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                if target_width > target_height:
+                    samples = torch.nn.functional.pad(samples, (0, 0, (dimSreduc)//2, (dimSreduc+1)//2), "constant", zero)
+                else:
+                    samples = torch.nn.functional.pad(samples, ((dimSreduc)//2, (dimSreduc+1)//2, 0, 0), "constant", zero)
+            elif self.rs_resize_mode == 4:
+                samples = torch.nn.functional.interpolate(samples, size=(dimSizeMin, dimSizeMin), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                samples = torch.nn.functional.pad(samples, (dimSreduc//2, (dimSreduc+1)//2, 0, 0), "replicate")
+                print("samples interpolate rs_resize_mode == 4", samples.shape, dimSizeMax, dimSizeMin, dimSreduc, samples[0, :, 0, 0], samples[0, :, -1, 0], samples[0, :, 0, -1], samples[0, :, -1, -1])
+
+            elif self.rs_resize_mode == 1:
+                samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                if target_width > target_height:
+                    samples = addPaddingSampler(samples, cropW*8, cropH*8)
+            else:
+                samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.rs_latent_scale_mode["mode"], antialias=self.rs_latent_scale_mode["antialias"])
+                    
+
 
             # Avoid making the inpainting conditioning unless necessary as
             # this does need some extra compute to decode / encode the image again.
@@ -1193,6 +1326,8 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
             else:
                 image_conditioning = self.txt2img_image_conditioning(samples)
         else:
+            # decoded_samples = [decode_first_stage(self.sd_model, samples[i:i+1]) for i in range(samples.size(0))]
+            # decoded_samples = torch.cat(decoded_samples)
             lowres_samples = torch.clamp((decoded_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
             batch_images = []
@@ -1203,7 +1338,9 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
                 save_intermediate(image, i)
 
+                # image = images.resize_image(0, image, target_width, target_height, upscaler_name=self.hr_upscaler)
                 image = images.resize_image(0, image, target_width, target_height, upscaler_name=self.hr_upscaler)
+
                 image = np.array(image).astype(np.float32) / 255.0
                 image = np.moveaxis(image, 2, 0)
                 batch_images.append(image)
@@ -1233,7 +1370,108 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
 
         with devices.autocast():
             self.calculate_hr_conds()
+        
+        # sd_models.apply_token_merging(self.sd_model, self.get_token_merging_ratio(for_hr=True))
 
+        if self.scripts is not None:
+            self.scripts.before_hr(self)
+
+        samples = self.sampler.sample_img2img(self, samples, noise, self.hr_c, self.hr_uc, steps=self.hr_second_pass_steps or self.steps, image_conditioning=image_conditioning)
+
+        # sd_models.apply_token_merging(self.sd_model, self.get_token_merging_ratio())
+
+        self.sampler = None
+        devices.torch_gc()
+
+        if self.rs_latent_scale_mode is not None and self.rs_resize_mode == 1 and target_width > target_height:
+            samples = samples[:, :, cropH:samples.shape[2]-cropH, cropW:samples.shape[3]-cropW]
+        decoded_samples = samples
+
+        self.is_hr_pass = False
+
+        return decoded_samples
+
+    def sample_hr_pass(self, samples, decoded_samples, seeds, subseeds, subseed_strength, prompts):
+        if shared.state.interrupted:
+            return samples
+
+        self.is_hr_pass = True
+
+        target_width = int(self.hr_upscale_to_x)
+        target_height = int(self.hr_upscale_to_y)
+
+        def save_intermediate(image, index):
+            """saves image before applying hires fix, if enabled in options; takes as an argument either an image or batch with latent space images"""
+
+            if not self.save_samples() or not opts.save_images_before_highres_fix:
+                return
+
+            if not isinstance(image, Image.Image):
+                image = sd_samplers.sample_to_image(image, index, approximation=0)
+
+            info = create_infotext(self, self.all_prompts, self.all_seeds, self.all_subseeds, [], iteration=self.iteration, position_in_batch=index)
+            images.save_image(image, self.outpath_samples, "", seeds[index], prompts[index], opts.samples_format, info=info, p=self, suffix="-before-highres-fix")
+
+        img2img_sampler_name = self.hr_sampler_name or self.sampler_name
+
+        self.sampler = sd_samplers.create_sampler(img2img_sampler_name, self.sd_model)
+
+        if self.hr_latent_scale_mode is not None:
+            for i in range(samples.shape[0]):
+                save_intermediate(samples, i)
+
+            samples = torch.nn.functional.interpolate(samples, size=(target_height // opt_f, target_width // opt_f), mode=self.hr_latent_scale_mode["mode"], antialias=self.hr_latent_scale_mode["antialias"])
+
+            # Avoid making the inpainting conditioning unless necessary as
+            # this does need some extra compute to decode / encode the image again.
+            if getattr(self, "inpainting_mask_weight", shared.opts.inpainting_mask_weight) < 1.0:
+                image_conditioning = self.img2img_image_conditioning(decode_first_stage(self.sd_model, samples), samples)
+            else:
+                image_conditioning = self.txt2img_image_conditioning(samples)
+        else:
+            lowres_samples = torch.clamp((decoded_samples + 1.0) / 2.0, min=0.0, max=1.0)
+
+            batch_images = []
+            for i, x_sample in enumerate(lowres_samples):
+                x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
+                x_sample = x_sample.astype(np.uint8)
+                image = Image.fromarray(x_sample)
+
+                save_intermediate(image, i)
+
+                # image = images.resize_image(0, image, target_width, target_height, upscaler_name=self.hr_upscaler)
+                image = images.resize_image(0, image, target_width, target_height, upscaler_name=self.hr_upscaler)
+
+                image = np.array(image).astype(np.float32) / 255.0
+                image = np.moveaxis(image, 2, 0)
+                batch_images.append(image)
+
+            decoded_samples = torch.from_numpy(np.array(batch_images))
+            decoded_samples = decoded_samples.to(shared.device, dtype=devices.dtype_vae)
+
+            if opts.sd_vae_encode_method != 'Full':
+                self.extra_generation_params['VAE Encoder'] = opts.sd_vae_encode_method
+            samples = images_tensor_to_samples(decoded_samples, approximation_indexes.get(opts.sd_vae_encode_method))
+
+            image_conditioning = self.img2img_image_conditioning(decoded_samples, samples)
+
+        shared.state.nextjob()
+
+        samples = samples[:, :, self.truncate_y//2:samples.shape[2]-(self.truncate_y+1)//2, self.truncate_x//2:samples.shape[3]-(self.truncate_x+1)//2]
+
+        self.rng = rng.ImageRNG(samples.shape[1:], self.seeds, subseeds=self.subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w)
+        noise = self.rng.next()
+
+        # GC now before running the next img2img to prevent running out of memory
+        devices.torch_gc()
+
+        if not self.disable_extra_networks:
+            with devices.autocast():
+                extra_networks.activate(self, self.hr_extra_network_data)
+
+        with devices.autocast():
+            self.calculate_hr_conds()
+        
         sd_models.apply_token_merging(self.sd_model, self.get_token_merging_ratio(for_hr=True))
 
         if self.scripts is not None:
@@ -1263,7 +1501,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
     def setup_prompts(self):
         super().setup_prompts()
 
-        if not self.enable_hr:
+        if not self.enable_hr and not self.rs_enable:
             return
 
         if self.hr_prompt == '':
@@ -1311,7 +1549,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         self.hr_uc = None
         self.hr_c = None
 
-        if self.enable_hr and self.hr_checkpoint_info is None:
+        if (self.enable_hr and self.hr_checkpoint_info is None) or self.rs_enable:
             if shared.opts.hires_fix_use_firstpass_conds:
                 self.calculate_hr_conds()
 
@@ -1333,7 +1571,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
     def parse_extra_network_prompts(self):
         res = super().parse_extra_network_prompts()
 
-        if self.enable_hr:
+        if self.enable_hr or self.rs_enable:
             self.hr_prompts = self.all_hr_prompts[self.iteration * self.batch_size:(self.iteration + 1) * self.batch_size]
             self.hr_negative_prompts = self.all_hr_negative_prompts[self.iteration * self.batch_size:(self.iteration + 1) * self.batch_size]
 

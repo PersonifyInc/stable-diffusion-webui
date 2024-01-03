@@ -152,7 +152,8 @@ def initialize_rest(*, reload_script_modules=False):
         from modules import devices
         devices.first_time_calculation()
 
-    Thread(target=load_model).start()
+    init_model_thread = Thread(target=load_model)
+    init_model_thread.start()
 
     from modules import shared_items
     shared_items.reload_hypernetworks()
@@ -166,3 +167,5 @@ def initialize_rest(*, reload_script_modules=False):
     extra_networks.initialize()
     extra_networks.register_default_extra_networks()
     startup_timer.record("initialize extra networks")
+
+    init_model_thread.join()

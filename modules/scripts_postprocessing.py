@@ -45,7 +45,14 @@ class ScriptPostprocessing:
     def image_changed(self):
         pass
 
+    def release_model(self):
+        pass
 
+    def get_total_steps(self, width, height, name, scale):
+        return 0
+    
+    def update_step_num(self, data):
+        return 0
 
 
 def wrap_call(func, filename, funcname, *args, default=None, **kwargs):
@@ -150,3 +157,18 @@ class ScriptPostprocessingRunner:
         for script in self.scripts_in_preferred_order():
             script.image_changed()
 
+    def release_model(self):
+        for script in self.scripts_in_preferred_order():
+            script.release_model()
+
+    def get_total_steps(self, width, height, name, scale):
+        total_steps = 0
+        for script in self.scripts_in_preferred_order():
+            total_steps += script.get_total_steps(width, height, name, scale)
+        return total_steps
+
+    def update_step_num(self, data):
+        steps = 0
+        for script in self.scripts_in_preferred_order():
+            steps += script.update_step_num(data)
+        return steps

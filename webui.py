@@ -11,9 +11,7 @@ startup_timer = timer.startup_timer
 startup_timer.record("launcher")
 
 initialize.imports()
-
 initialize.check_versions()
-
 
 def create_api(app):
     from modules.api.api import Api
@@ -27,6 +25,7 @@ def api_only():
     from fastapi import FastAPI
     from modules.shared_cmd_options import cmd_opts
 
+    shared.opts.sd_model_checkpoint = None
     initialize.initialize()
 
     app = FastAPI()
@@ -36,7 +35,6 @@ def api_only():
     from modules import script_callbacks
     script_callbacks.before_ui_callback()
     script_callbacks.app_started_callback(None, app)
-
     print(f"Startup time: {startup_timer.summary()}.")
     api.launch(
         server_name="0.0.0.0" if cmd_opts.listen else "127.0.0.1",

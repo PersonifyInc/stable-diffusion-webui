@@ -14,6 +14,10 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
     name = "Upscale"
     order = 1000
 
+    def __init__(self):
+        self.upscaler1 = None
+        self.upscaler2 = None
+
     def ui(self):
         selected_tab = gr.State(value=0)
 
@@ -97,10 +101,12 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
         upscaler2 = next(iter([x for x in shared.sd_upscalers if x.name == upscaler_2_name and x.name != "None"]), None)
         assert upscaler2 or (upscaler_2_name is None), f'could not find upscaler named {upscaler_2_name}'
 
+        self.upscaler1 = upscaler1
         upscaled_image = self.upscale(pp.image, pp.info, upscaler1, upscale_mode, upscale_by, upscale_to_width, upscale_to_height, upscale_crop)
         pp.info["Postprocess upscaler"] = upscaler1.name
 
         if upscaler2 and upscaler_2_visibility > 0:
+            self.upscaler2 = upscaler2
             second_upscale = self.upscale(pp.image, pp.info, upscaler2, upscale_mode, upscale_by, upscale_to_width, upscale_to_height, upscale_crop)
             upscaled_image = Image.blend(upscaled_image, second_upscale, upscaler_2_visibility)
 
@@ -111,6 +117,28 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
     def image_changed(self):
         upscale_cache.clear()
 
+    def release_model(self):
+        if (self.upscaler1 is not None):
+            self.upscaler1.scaler.release_model()
+        if (self.upscaler2 is not None):
+            self.upscaler2.scaler.release_model() 
+        self.upscaler1 = None
+        self.upscaler2 = None
+
+    def get_total_steps(self, width, height, name, scale):
+        total_steps = 0
+        upscaler = next(iter([x for x in shared.sd_upscalers if x.name == name]), None)
+        if (upscaler is not None):
+            total_steps = upscaler.scaler.get_total_steps(width, height, name, scale)
+        return total_steps
+    
+    def update_step_num(self, data):
+        steps = 0
+        if (self.upscaler1 is not None):
+            steps += self.upscaler1.scaler.update_step_num(data)
+        if (self.upscaler2 is not None):
+            steps += self.upscaler2.scaler.update_step_num(data)
+        return steps
 
 class ScriptPostprocessingUpscaleSimple(ScriptPostprocessingUpscale):
     name = "Simple Upscale"

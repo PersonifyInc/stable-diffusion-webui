@@ -501,27 +501,63 @@ def list_available_networks():
 
     os.makedirs(shared.cmd_opts.lora_dir, exist_ok=True)
 
-    candidates = list(shared.walk_files(shared.cmd_opts.lora_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
-    candidates += list(shared.walk_files(shared.cmd_opts.lyco_dir_backcompat, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
-    for filename in candidates:
-        if os.path.isdir(filename):
+    import json
+    from pathlib import Path
+    lora_dirs = [shared.cmd_opts.lora_dir, shared.cmd_opts.additional_lora, shared.cmd_opts.lyco_dir_backcompat]
+    for lora_dir in lora_dirs:
+        if lora_dir is not shared.cmd_opts.additional_lora:
+            os.makedirs(lora_dir, exist_ok=True)
+
+        if (lora_dir is None or os.path.exists(lora_dir) == False):
             continue
 
-        name = os.path.splitext(os.path.basename(filename))[0]
-        try:
-            entry = network.NetworkOnDisk(name, filename)
-        except OSError:  # should catch FileNotFoundError and PermissionError etc.
-            errors.report(f"Failed to load network {name} from {filename}", exc_info=True)
-            continue
+        config_path = os.path.sep.join([lora_dir, "_configs.json"])
+        config = {}
+        if (os.path.exists(config_path)):
+            if os.path.isfile(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf8") as file:
+                        config = json.load(file)
+                except:
+                    config = {}
 
-        available_networks[name] = entry
+        candidates = list(shared.walk_files(lora_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
+        for filename in candidates:
+            if os.path.isdir(filename):
+                continue
+            if (filename == config_path):
+                continue
 
-        if entry.alias in available_network_aliases:
-            forbidden_network_aliases[entry.alias.lower()] = 1
+            name = os.path.splitext(os.path.basename(filename))[0]
+            try:
+                entry = network.NetworkOnDisk(name, filename)
+            except OSError:  # should catch FileNotFoundError and PermissionError etc.
+                errors.report(f"Failed to load network {name} from {filename}", exc_info=True)
+                continue
 
-        available_network_aliases[name] = entry
-        available_network_aliases[entry.alias] = entry
+            available_networks[name] = entry
+            print("Loading network: ", name, filename)
 
+            if entry.alias in available_network_aliases:
+                forbidden_network_aliases[entry.alias.lower()] = 1
+
+            available_network_aliases[name] = entry
+            available_network_aliases[entry.alias] = entry
+
+            nameWithExt = Path(filename).name
+            nameWithoutExt = Path(filename).stem
+            if (nameWithExt in config and "alias" in config[nameWithExt]):
+                available_networks[name].config_alias = config[nameWithExt]["alias"]
+            else:
+                available_networks[name].config_alias = nameWithoutExt
+                config[nameWithExt] = {
+                    "alias": nameWithoutExt
+                }
+
+        candidates = []
+        config = dict(sorted(config.items(), key=lambda item: item[0].lower()))
+        with open(config_path, "w", encoding="utf8") as file:
+            json.dump(config, file, indent=4)
 
 re_network_name = re.compile(r"(.*)\s*\([0-9a-fA-F]+\)")
 

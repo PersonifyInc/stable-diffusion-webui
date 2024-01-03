@@ -25,7 +25,7 @@ checkpoints_list = {}
 checkpoint_aliases = {}
 checkpoint_alisases = checkpoint_aliases  # for compatibility with old name
 checkpoints_loaded = collections.OrderedDict()
-
+checkpoints_path_list = {}
 
 def replace_key(d, key, new_key, value):
     keys = list(d.keys())
@@ -43,7 +43,6 @@ def replace_key(d, key, new_key, value):
     d.clear()
     d.update(new_d)
     return d
-
 
 class CheckpointInfo:
     def __init__(self, filename):
@@ -92,6 +91,7 @@ class CheckpointInfo:
 
     def register(self):
         checkpoints_list[self.title] = self
+        checkpoints_path_list[self.filename.lower()] = self.title
         for id in self.ids:
             checkpoint_aliases[id] = self
 
@@ -141,6 +141,7 @@ def checkpoint_tiles(use_short=False):
 def list_models():
     checkpoints_list.clear()
     checkpoint_aliases.clear()
+    checkpoints_path_list.clear()
 
     cmd_ckpt = shared.cmd_opts.ckpt
     if shared.cmd_opts.no_download_sd_model or cmd_ckpt != shared.sd_model_file or os.path.exists(cmd_ckpt):
@@ -149,6 +150,10 @@ def list_models():
         model_url = "https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
 
     model_list = modelloader.load_models(model_path=model_path, model_url=model_url, command_path=shared.cmd_opts.ckpt_dir, ext_filter=[".ckpt", ".safetensors"], download_name="v1-5-pruned-emaonly.safetensors", ext_blacklist=[".vae.ckpt", ".vae.safetensors"])
+    if (shared.cmd_opts.additional_model is not None and os.path.exists(shared.cmd_opts.additional_model)):
+        model_list_additional = modelloader.load_models(model_path=shared.cmd_opts.additional_model, model_url=None, command_path=None, ext_filter=[".ckpt", ".safetensors"], download_name=None, ext_blacklist=[".vae.ckpt", ".vae.safetensors"])
+        if (isinstance(model_list_additional, list)):
+            model_list.extend(model_list_additional)
 
     if os.path.exists(cmd_ckpt):
         checkpoint_info = CheckpointInfo(cmd_ckpt)

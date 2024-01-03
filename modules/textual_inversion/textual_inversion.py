@@ -38,7 +38,7 @@ def list_textual_inversion_templates():
 
 
 class Embedding:
-    def __init__(self, vec, name, step=None):
+    def __init__(self, vec, name, name_with_ext, step=None):
         self.vec = vec
         self.name = name
         self.step = step
@@ -51,6 +51,8 @@ class Embedding:
         self.filename = None
         self.hash = None
         self.shorthash = None
+        self.name_with_ext = name_with_ext
+        self.alias = name
 
     def save(self, filename):
         embedding_data = {
@@ -207,7 +209,7 @@ class EmbeddingDatabase:
         else:
             raise Exception(f"Couldn't identify {filename} as neither textual inversion embedding nor diffuser concept.")
 
-        embedding = Embedding(vec, name)
+        embedding = Embedding(vec, name, filename)
         embedding.step = data.get('step', None)
         embedding.sd_checkpoint = data.get('sd_checkpoint', None)
         embedding.sd_checkpoint_name = data.get('sd_checkpoint_name', None)
@@ -220,25 +222,56 @@ class EmbeddingDatabase:
             self.register_embedding(embedding, shared.sd_model)
         else:
             self.skipped_embeddings[name] = embedding
+        return embedding
 
     def load_from_dir(self, embdir):
         if not os.path.isdir(embdir.path):
             return
 
-        for root, _, fns in os.walk(embdir.path, followlinks=True):
-            for fn in fns:
+        import json  
+        from pathlib import Path
+
+        config_path = os.path.sep.join([embdir.path, "_configs.json"])
+        config = {}
+        if (os.path.exists(config_path)):
+            if os.path.isfile(config_path):
                 try:
-                    fullfn = os.path.join(root, fn)
+                    with open(config_path, "r", encoding="utf8") as file:
+                        config = json.load(file)
+                except:
+                    config = {}
 
-                    if os.stat(fullfn).st_size == 0:
-                        continue
+        all_files = []
+        for f in os.scandir(embdir.path):
+            if f.is_file() and Path(f.path).suffix not in [".json", ".txt"]:
+                all_files.append((f.name, f.path))
 
-                    self.load_from_file(fullfn, fn)
-                except Exception:
-                    errors.report(f"Error loading embedding {fn}", exc_info=True)
+        for fn, fullfn in all_files:
+            try:
+                if (fullfn == config_path):
                     continue
 
+                if os.stat(fullfn).st_size == 0:
+                    continue
+
+                embedding = self.load_from_file(fullfn, fn)
+                if (embedding.name_with_ext in config and "alias" in config[embedding.name_with_ext]):
+                    embedding.alias = config[embedding.name_with_ext]["alias"]
+                else:
+                    embedding.alias = embedding.name
+                    config[embedding.name_with_ext] = {
+                        "alias": embedding.name
+                    }
+            except Exception:
+                errors.report(f"Error loading embedding {fn}", exc_info=True)
+                continue
+
+        config = dict(sorted(config.items(), key=lambda item: item[0].lower()))
+        with open(config_path, "w", encoding="utf8") as file:
+            json.dump(config, file, indent=4)
+
     def load_textual_inversion_embeddings(self, force_reload=False):
+        print("load_textual_inversion_embeddings")
         if not force_reload:
             need_reload = False
             for embdir in self.embedding_dirs.values():
